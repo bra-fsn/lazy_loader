@@ -16,7 +16,7 @@ import warnings
 __all__ = ["attach", "load", "attach_stub"]
 
 
-def attach(package_name, submodules=None, submod_attrs=None):
+def attach(package_name, submodules=None, submod_attrs=None, aliases=None):
     """Attach lazily loaded submodules, functions, or other attributes.
 
     Typically, modules import submodules and attributes as follows::
@@ -38,6 +38,23 @@ def attach(package_name, submodules=None, submod_attrs=None):
         {'foo': ['someattr']}
       )
 
+    The `aliases` attribute supports `import as`, so an import of::
+
+        import mysubmodule as aliasedmodule
+        from .foo import someattr as aliasedattr
+
+    Can be implemented as::
+
+      __getattr__, __dir__, __all__ = lazy.attach(
+        __name__,
+        ['mysubmodule'],
+        {'foo': ['someattr']}
+        aliases = {
+            'aliasedmodule': 'mysubmodule',
+            'aliasedattr': 'someattr'
+        }
+      )
+
     This functionality requires Python 3.7 or higher.
 
     Parameters
@@ -49,6 +66,8 @@ def attach(package_name, submodules=None, submod_attrs=None):
     submod_attrs : dict
         Dictionary of submodule -> list of attributes / functions.
         These attributes are imported as they are used.
+    aliases : dict
+        Dictonary of from->to aliases.
 
     Returns
     -------
@@ -63,16 +82,31 @@ def attach(package_name, submodules=None, submod_attrs=None):
     else:
         submodules = set(submodules)
 
+    if aliases is None:
+        aliases = {}
+
     attr_to_modules = {
         attr: mod for mod, attrs in submod_attrs.items() for attr in attrs
     }
+    from pprint import pprint as pp
+    pp(attr_to_modules)
 
     __all__ = sorted(submodules | attr_to_modules.keys())
 
-    def __getattr__(name):
-        if name in submodules:
+    def __getattr__(name, package_name=package_name):
+        # alias takes precedence, the target name must not be exposed
+        if name in aliases and aliases[name] in submodules:
+            return importlib.import_module(f"{package_name}.{aliases[name]}")
+        elif name in submodules:
             return importlib.import_module(f"{package_name}.{name}")
-        elif name in attr_to_modules:
+        elif (
+                # if there's an alias, hide the original attr name
+                (name in attr_to_modules and name not in aliases.values()) or
+                name in aliases and aliases[name] in attr_to_modules
+        ):
+            # replace name with the alias target if there's a match
+            if name in aliases and aliases[name] in attr_to_modules:
+                name = aliases[name]
             submod_path = f"{package_name}.{attr_to_modules[name]}"
             submod = importlib.import_module(submod_path)
             attr = getattr(submod, name)
