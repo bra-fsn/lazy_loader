@@ -88,8 +88,6 @@ def attach(package_name, submodules=None, submod_attrs=None, aliases=None):
     attr_to_modules = {
         attr: mod for mod, attrs in submod_attrs.items() for attr in attrs
     }
-    from pprint import pprint as pp
-    pp(attr_to_modules)
 
     __all__ = sorted(submodules | attr_to_modules.keys())
 
